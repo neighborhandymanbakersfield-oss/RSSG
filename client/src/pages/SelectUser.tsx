@@ -22,18 +22,21 @@ export default function SelectUser() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="bg-white p-6 rounded shadow-md">
-        <h1 className="text-2xl mb-4">Who are you?</h1>
+    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+      <div className="bg-white p-6 rounded shadow-md max-w-md w-full">
+        <div className="text-center mb-6">
+          <img src="/RSSGLOGO.png" alt="Restaurant Superstar Group Logo" className="mx-auto h-16 w-auto" />
+        </div>
+        <h1 className="text-2xl mb-4 text-center">Who are you?</h1>
         <div className="space-y-2">
           {users.map((user) => (
             <button
               key={user.id}
               onClick={() => selectUser(user.id)}
-              className="w-full p-2 border text-left flex justify-between"
+              className="w-full p-3 border rounded hover:bg-gray-50 flex justify-between items-center"
             >
-              <span>{user.displayName}</span>
-              <span className="bg-gray-200 px-2 rounded">{user.role}</span>
+              <span className="font-medium">{user.displayName}</span>
+              <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">{user.role}</span>
             </button>
           ))}
         </div>
