@@ -1,5 +1,6 @@
 import express from 'express';
-import { PrismaClient, UserRole, PassType, NotificationChannel } from '@prisma/client';
+import { PrismaClient, UserRole, PassType } from '@prisma/client';
+import { PASS_DURATION_MS, UNACTIVATED_PASS_DATE } from '../utils/passPolicy';
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -31,7 +32,7 @@ router.get('/users', async (req, res) => {
 
 // POST /admin/users - create new user
 router.post('/users', async (req, res) => {
-  const { displayName, role, email, phone } = req.body;
+  const { displayName, role, email, phone, isMasterAdmin } = req.body;
 
   // Check maxUsers
   const settings = await prisma.globalSettings.findUnique({ where: { id: 1 } });
@@ -44,6 +45,24 @@ router.post('/users', async (req, res) => {
     return res.status(400).json({ error: 'New TEMP users not allowed' });
   }
 
+  const wantsMasterAdmin = Boolean(isMasterAdmin);
+  if (wantsMasterAdmin && role !== UserRole.ADMIN) {
+    return res.status(400).json({ error: 'Only ADMIN users can be Master Admins' });
+  }
+
+  if (wantsMasterAdmin) {
+    const activeMasterAdminCount = await prisma.user.count({
+      where: {
+        role: UserRole.ADMIN,
+        isMasterAdmin: true,
+        isActive: true,
+      },
+    });
+    if (activeMasterAdminCount >= 5) {
+      return res.status(400).json({ error: 'Maximum of 5 active Master Admins allowed' });
+    }
+  }
+
   const user = await prisma.user.create({
     data: {
       displayName,
@@ -51,6 +70,7 @@ router.post('/users', async (req, res) => {
       email,
       phone,
       isActive: true,
+      isMasterAdmin: wantsMasterAdmin,
     },
   });
 
@@ -69,11 +89,49 @@ router.post('/users', async (req, res) => {
 // PATCH /admin/users/:id - update user
 router.patch('/users/:id', async (req, res) => {
   const { id } = req.params;
-  const { displayName, role, email, phone, isActive } = req.body;
+  const userId = parseInt(id);
+  if (isNaN(userId)) {
+    return res.status(400).json({ error: 'Invalid user ID' });
+  }
+
+  const { displayName, role, email, phone, isActive, isMasterAdmin } = req.body;
+
+  const existingUser = await prisma.user.findUnique({
+    where: { id: userId },
+  });
+  if (!existingUser) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const nextRole = role ?? existingUser.role;
+  const nextIsActive = typeof isActive === 'boolean' ? isActive : existingUser.isActive;
+  const nextIsMasterAdmin = typeof isMasterAdmin === 'boolean' ? isMasterAdmin : existingUser.isMasterAdmin;
+
+  if (nextIsMasterAdmin && nextRole !== UserRole.ADMIN) {
+    return res.status(400).json({ error: 'Only ADMIN users can be Master Admins' });
+  }
+
+  const consumingNewMasterSlot = nextIsMasterAdmin
+    && nextIsActive
+    && !(existingUser.isMasterAdmin && existingUser.isActive);
+
+  if (consumingNewMasterSlot) {
+    const activeMasterAdminCount = await prisma.user.count({
+      where: {
+        role: UserRole.ADMIN,
+        isMasterAdmin: true,
+        isActive: true,
+        id: { not: userId },
+      },
+    });
+    if (activeMasterAdminCount >= 5) {
+      return res.status(400).json({ error: 'Maximum of 5 active Master Admins allowed' });
+    }
+  }
 
   const user = await prisma.user.update({
-    where: { id: parseInt(id) },
-    data: { displayName, role, email, phone, isActive },
+    where: { id: userId },
+    data: { displayName, role, email, phone, isActive, isMasterAdmin },
   });
 
   res.json(user);
@@ -83,6 +141,21 @@ router.patch('/users/:id', async (req, res) => {
 router.post('/passes', async (req, res) => {
   const { userId, type } = req.body;
   const adminId = (req as any).user.id;
+  const parsedUserId = parseInt(userId);
+
+  if (isNaN(parsedUserId)) {
+    return res.status(400).json({ error: 'Invalid user ID' });
+  }
+
+  const tempUser = await prisma.user.findUnique({
+    where: { id: parsedUserId },
+  });
+  if (!tempUser) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  if (tempUser.role !== UserRole.TEMP) {
+    return res.status(400).json({ error: 'Passes can only be issued to TEMP users' });
+  }
 
   const settings = await prisma.globalSettings.findUnique({ where: { id: 1 } });
   const enabledMap: Record<PassType, boolean> = {
@@ -97,20 +170,29 @@ router.post('/passes', async (req, res) => {
     return res.status(400).json({ error: 'Pass type not enabled' });
   }
 
-  const durationMap: Record<PassType, number> = {
-    HOURS_24: 24 * 60 * 60 * 1000,
-    DAYS_3: 3 * 24 * 60 * 60 * 1000,
-    DAYS_7: 7 * 24 * 60 * 60 * 1000,
-    DAYS_30: 30 * 24 * 60 * 60 * 1000,
-  };
-  const duration = durationMap[type as PassType];
+  if (!(type in PASS_DURATION_MS)) {
+    return res.status(400).json({ error: 'Invalid pass type' });
+  }
+
+  // Keep only the newest pending pass per TEMP user to avoid accidental multiple queued passes.
+  await prisma.accessPass.updateMany({
+    where: {
+      userId: parsedUserId,
+      isRevoked: false,
+      startsAt: UNACTIVATED_PASS_DATE,
+      expiresAt: UNACTIVATED_PASS_DATE,
+    },
+    data: {
+      isRevoked: true,
+    },
+  });
 
   const pass = await prisma.accessPass.create({
     data: {
-      userId: parseInt(userId),
+      userId: parsedUserId,
       type,
-      startsAt: new Date(),
-      expiresAt: new Date(Date.now() + duration),
+      startsAt: UNACTIVATED_PASS_DATE,
+      expiresAt: UNACTIVATED_PASS_DATE,
       createdByAdminId: adminId,
     },
   });

@@ -1,17 +1,48 @@
 import { PrismaClient } from '@prisma/client';
+import { UNACTIVATED_PASS_DATE } from '../utils/passPolicy';
 
 export function startExpirationJob(prisma: PrismaClient) {
   setInterval(async () => {
-    const expiredPasses = await prisma.accessPass.findMany({
+    const now = new Date();
+
+    const revoked = await prisma.accessPass.updateMany({
       where: {
         isRevoked: false,
-        expiresAt: { lt: new Date() },
+        startsAt: { gt: UNACTIVATED_PASS_DATE },
+        expiresAt: { lt: now },
+      },
+      data: {
+        isRevoked: true,
       },
     });
 
-    if (expiredPasses.length > 0) {
-      console.log(`Found ${expiredPasses.length} expired passes`);
-      // Optionally, mark them or log
+    const deactivated = await prisma.user.updateMany({
+      where: {
+        role: 'TEMP',
+        isActive: true,
+        accessPasses: {
+          none: {
+            isRevoked: false,
+            OR: [
+              {
+                startsAt: { gt: UNACTIVATED_PASS_DATE },
+                expiresAt: { gt: now },
+              },
+              {
+                startsAt: UNACTIVATED_PASS_DATE,
+                expiresAt: UNACTIVATED_PASS_DATE,
+              },
+            ],
+          },
+        },
+      },
+      data: {
+        isActive: false,
+      },
+    });
+
+    if (revoked.count > 0 || deactivated.count > 0) {
+      console.log(`Pass expiration job: revoked ${revoked.count}, deactivated ${deactivated.count}`);
     }
   }, 60 * 1000); // Every minute
 }
