@@ -1,0 +1,118 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  VIP
+  TEMP
+}
+
+enum PassType {
+  HOURS_24
+  DAYS_3
+  DAYS_7
+  DAYS_30
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  NONE
+}
+
+model User {
+  id            Int      @id @default(autoincrement())
+  displayName   String
+  role          UserRole
+  phone         String?
+  email         String?
+  isActive      Boolean  @default(true)
+  isMasterAdmin Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  accessPasses          AccessPass[]
+  messages              Message[]
+  createdAccessPasses   AccessPass[]     @relation("CreatedByAdmin")
+  notificationPreference NotificationPreference?
+
+  @@map("users")
+}
+
+model AccessPass {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  type            PassType
+  startsAt        DateTime
+  expiresAt       DateTime
+  isRevoked       Boolean  @default(false)
+  createdByAdminId Int
+  createdAt       DateTime @default(now())
+
+  user            User @relation(fields: [userId], references: [id])
+  createdByAdmin  User @relation("CreatedByAdmin", fields: [createdByAdminId], references: [id])
+
+  @@map("access_passes")
+}
+
+model Message {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  content   String
+  createdAt DateTime @default(now())
+  deleted   Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("messages")
+}
+
+model GroupSession {
+  id           Int      @id @default(autoincrement())
+  sessionToken String   @unique
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@map("group_sessions")
+}
+
+model NotificationPreference {
+  id            Int                 @id @default(autoincrement())
+  userId        Int                 @unique
+  channel       NotificationChannel
+  enabled       Boolean             @default(true)
+  lastNotifiedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("notification_preferences")
+}
+
+model GlobalSettings {
+  id                          Int                 @id @default(1)
+  maxUsers                    Int                 @default(15)
+  allowNewTempUsers           Boolean             @default(true)
+  enable24HourPass            Boolean             @default(true)
+  enable3DayPass              Boolean             @default(true)
+  enable7DayPass              Boolean             @default(true)
+  enable30DayPass             Boolean             @default(true)
+  enableEmailNotifications    Boolean             @default(true)
+  enableSMSNotifications      Boolean             @default(true)
+  defaultNotificationChannel  NotificationChannel @default(EMAIL)
+  notificationThrottleMinutes Int                 @default(5)
+  requirePhoneForSMS          Boolean             @default(true)
+  requireEmailForEmailNotifications Boolean       @default(true)
+  createdAt                   DateTime            @default(now())
+  updatedAt                   DateTime            @updatedAt
+
+  @@map("global_settings")
+}
