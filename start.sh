@@ -1,2 +1,4 @@
-#!/bin/bash
-cd server && npm start
+#!/usr/bin/env sh
+set -eu
+cd "$(dirname "$0")/server"
+npm start
