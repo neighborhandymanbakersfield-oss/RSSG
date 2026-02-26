@@ -4,14 +4,25 @@ import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
 
 const prisma = new PrismaClient();
 
-sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
-const snsClient = new SNSClient({
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-});
+const sendgridApiKey = process.env.SENDGRID_API_KEY;
+const sendgridFromEmail = process.env.SENDGRID_FROM_EMAIL;
+const hasValidSendGridApiKey = !!sendgridApiKey && sendgridApiKey.startsWith('SG.');
+
+if (hasValidSendGridApiKey) {
+  sgMail.setApiKey(sendgridApiKey);
+}
+
+const awsAccessKeyId = process.env.AWS_ACCESS_KEY_ID;
+const awsSecretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+const snsClient = awsAccessKeyId && awsSecretAccessKey
+  ? new SNSClient({
+    region: process.env.AWS_REGION || 'us-east-1',
+    credentials: {
+      accessKeyId: awsAccessKeyId,
+      secretAccessKey: awsSecretAccessKey,
+    },
+  })
+  : null;
 
 export async function sendNotifications(messageId: number) {
   const message = await prisma.message.findUnique({
@@ -42,16 +53,18 @@ export async function sendNotifications(messageId: number) {
     }
 
     if (pref.channel === 'EMAIL' && settings.enableEmailNotifications) {
+      if (!hasValidSendGridApiKey || !sendgridFromEmail) continue;
       if (settings.requireEmailForEmailNotifications && !user.email) continue;
       if (user.email) {
         await sgMail.send({
           to: user.email,
-          from: process.env.SENDGRID_FROM_EMAIL!,
+          from: sendgridFromEmail,
           subject: 'New message in Restaurant Superstar Group',
           text: `New message from ${message.user.displayName}: ${message.content}`,
         });
       }
     } else if (pref.channel === 'SMS' && settings.enableSMSNotifications) {
+      if (!snsClient) continue;
       if (settings.requirePhoneForSMS && !user.phone) continue;
       if (user.phone) {
         const command = new PublishCommand({
