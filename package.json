@@ -11,6 +11,8 @@
     "build:server": "cd server && npm run build",
     "start": "node server/dist/index.js",
     "db:migrate": "cd server && npx prisma migrate dev",
+    "db:migrate:deploy": "cd server && npx prisma migrate deploy",
+    "db:push": "cd server && npx prisma db push",
     "db:seed": "cd server && npx prisma db seed",
     "db:generate": "cd server && npx prisma generate"
   },

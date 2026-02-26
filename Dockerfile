@@ -29,4 +29,4 @@ RUN printf '#!/usr/bin/env sh\nexec node /app/server/dist/index.js\n' > /usr/loc
   && chmod +x /usr/local/bin/start.sh
 
 # Start server
-CMD ["node", "dist/index.js"]
+CMD ["sh", "-c", "if [ -d prisma/migrations ] && [ \"$(ls -A prisma/migrations 2>/dev/null)\" ]; then npx prisma migrate deploy; else npx prisma db push --skip-generate; fi && node dist/index.js"]

@@ -36,6 +36,24 @@ app.use(cors({
 app.use(cookieParser());
 app.use(express.json());
 
+app.get('/healthz', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({
+      status: 'ok',
+      database: 'ok',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Database check failed';
+    res.status(503).json({
+      status: 'error',
+      database: 'unavailable',
+      message,
+    });
+  }
+});
+
 // Serve static files from client
 app.use(express.static(path.join(__dirname, '../../client/dist')));
 
